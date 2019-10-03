@@ -1,10 +1,23 @@
 package com.anantadwi13.mapku;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.FragmentActivity;
 
+import android.Manifest;
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
 import android.location.Address;
 import android.location.Geocoder;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -13,26 +26,38 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
 
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationResult;
+import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 
 import java.util.List;
+import java.util.Locale;
 
-public class MapsActivity extends AppCompatActivity implements OnMapReadyCallback, View.OnClickListener {
+public class MapsActivity extends AppCompatActivity implements OnMapReadyCallback, View.OnClickListener, LocationListener {
 
+    private static final int REQUEST_PERMISSION_GPS = 321;
     private GoogleMap mMap;
 
     private EditText etLat, etLong, etZoom, etSearch;
     private Button btnJump, btnSearch;
 
     private Double lat = -7.280002, lng = 112.797485;
-    private Marker marker;
+    private Marker marker, markerPosition;
     private Float zoom = 15f;
+
+    private LocationManager locationManager;
+    private FusedLocationProviderClient fusedLocation;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,6 +82,9 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
+
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        fusedLocation = LocationServices.getFusedLocationProviderClient(this);
     }
 
 
@@ -77,6 +105,31 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
         LatLng latLng = new LatLng(lat, lng);
         marker = mMap.addMarker(new MarkerOptions().position(latLng).title("My Marker"));
         mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(latLng, zoom));
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) !=
+                PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION}, REQUEST_PERMISSION_GPS);
+            return;
+        }
+        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 200, this);
+        LocationRequest mLocationRequest = LocationRequest.create();
+        mLocationRequest.setInterval(1000);
+        mLocationRequest.setFastestInterval(1000);
+        mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+        LocationCallback locationCallback = new LocationCallback(){
+            @Override
+            public void onLocationResult(LocationResult locationResult) {
+                super.onLocationResult(locationResult);
+
+                if (locationResult == null) return;
+                for (Location location : locationResult.getLocations()){
+                    MapsActivity.this.onLocationChanged(location);
+                }
+            }
+        };
+        fusedLocation.requestLocationUpdates(mLocationRequest, locationCallback, null);
     }
 
     @Override
@@ -153,8 +206,57 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
             etLat.setText(String.valueOf(mLat));
             etLong.setText(String.valueOf(mLng));
             etZoom.setText(String.valueOf(mZoom));
+
+            LatLngBounds.Builder builder = new LatLngBounds.Builder();
+            builder.include(newLatLng);
+            if (markerPosition!=null) {
+                builder.include(markerPosition.getPosition());
+                mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), (int) (104 * Resources.getSystem().getDisplayMetrics().density)));
+            } else
+                mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(newLatLng, zoom));
         } catch (Exception e){
             e.printStackTrace();
         }
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+
+        Toast.makeText(this, String.format(Locale.US,"%f %f", location.getLatitude(), location.getLongitude()), Toast.LENGTH_SHORT).show();
+
+        LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
+
+        Drawable icon = ContextCompat.getDrawable(this, R.drawable.ic_my_location_24px);
+        icon.setBounds(0, 0, icon.getIntrinsicWidth(), icon.getIntrinsicHeight());
+        Bitmap bitmap = Bitmap.createBitmap(icon.getIntrinsicWidth(), icon.getIntrinsicHeight(), Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        icon.draw(canvas);
+
+        if (markerPosition != null)
+            markerPosition.remove();
+        markerPosition = mMap.addMarker(new MarkerOptions().position(latLng).title("My Position")
+                .icon(BitmapDescriptorFactory.fromBitmap(bitmap)));
+        LatLngBounds.Builder builder = new LatLngBounds.Builder();
+        builder.include(latLng);
+        if (marker!=null) {
+            builder.include(marker.getPosition());
+            mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), (int) (104 * Resources.getSystem().getDisplayMetrics().density)));
+        } else
+            mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, zoom));
+    }
+
+    @Override
+    public void onStatusChanged(String provider, int status, Bundle extras) {
+
+    }
+
+    @Override
+    public void onProviderEnabled(String provider) {
+
+    }
+
+    @Override
+    public void onProviderDisabled(String provider) {
+
     }
 }
