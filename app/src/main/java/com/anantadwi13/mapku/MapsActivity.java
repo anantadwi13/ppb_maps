@@ -41,6 +41,7 @@ import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -58,6 +59,10 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     private LocationManager locationManager;
     private FusedLocationProviderClient fusedLocation;
+
+    private ArrayList<Marker> savedMarker = new ArrayList<>();
+
+    private static boolean firstLaunch = true;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -222,7 +227,7 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
     @Override
     public void onLocationChanged(Location location) {
 
-        Toast.makeText(this, String.format(Locale.US,"%f %f", location.getLatitude(), location.getLongitude()), Toast.LENGTH_SHORT).show();
+        // Toast.makeText(this, String.format(Locale.US,"%f %f", location.getLatitude(), location.getLongitude()), Toast.LENGTH_SHORT).show();
 
         LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
 
@@ -232,17 +237,31 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
         Canvas canvas = new Canvas(bitmap);
         icon.draw(canvas);
 
-        if (markerPosition != null)
+        if (markerPosition != null) {
+            boolean free = true;
+            for (Marker marker : savedMarker)
+                if (distance(latLng.latitude, marker.getPosition().latitude, latLng.longitude, marker.getPosition().longitude) < 5.0) {
+                    free = false;
+                    break;
+                }
+            if (free)
+                savedMarker.add(mMap.addMarker(new MarkerOptions().position(markerPosition.getPosition())
+                        .title(String.format(Locale.US, "Saved Position %d", savedMarker.size()))));
             markerPosition.remove();
+        }
         markerPosition = mMap.addMarker(new MarkerOptions().position(latLng).title("My Position")
                 .icon(BitmapDescriptorFactory.fromBitmap(bitmap)));
-        LatLngBounds.Builder builder = new LatLngBounds.Builder();
-        builder.include(latLng);
-        if (marker!=null) {
-            builder.include(marker.getPosition());
-            mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), (int) (104 * Resources.getSystem().getDisplayMetrics().density)));
-        } else
-            mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, zoom));
+
+        if (firstLaunch) {
+            LatLngBounds.Builder builder = new LatLngBounds.Builder();
+            builder.include(latLng);
+            if (marker != null) {
+                builder.include(marker.getPosition());
+                mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), (int) (104 * Resources.getSystem().getDisplayMetrics().density)));
+            } else
+                mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, zoom));
+            firstLaunch = false;
+        }
     }
 
     @Override
@@ -259,4 +278,20 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
     public void onProviderDisabled(String provider) {
 
     }
+
+    public double distance(double lat1, double lat2, double lon1,
+                                  double lon2) {
+        final int R = 6371; // Radius of the earth
+
+        double latDistance = Math.toRadians(lat2 - lat1);
+        double lonDistance = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(latDistance / 2) * Math.sin(latDistance / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(lonDistance / 2) * Math.sin(lonDistance / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        double distance = R * c * 1000; // convert to meters
+
+        return distance;
+    }
+
 }
